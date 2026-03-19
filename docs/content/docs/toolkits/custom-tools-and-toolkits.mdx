@@ -8,11 +8,15 @@ keywords: [custom tools, custom toolkits, beta, experimental, local tools, proxy
 Custom tools are experimental. The `experimental_` prefix and `experimental` session option may change in future releases. TypeScript only.
 </Callout>
 
+<Callout type="info">
+Custom tools work with **native tools** (`session.tools()`). MCP support is coming soon.
+</Callout>
+
 Custom tools let you define local tools that run in-process alongside remote Composio tools within a session.
 
 ## Standalone tool
 
-A tool with no Composio-managed authentication — just input and an execute function:
+A tool with no Composio-managed authentication:
 
 ```ts
 // @noErrors
@@ -33,7 +37,7 @@ const getUser = experimental_createTool("GET_USER", {
 
 ## Extension tool
 
-A tool that inherits authentication from an existing Composio toolkit via `extendsToolkit`. The second argument to `execute` is a `SessionContext` that lets you make authenticated API calls or invoke other tools:
+Inherits authentication from an existing Composio toolkit via `extendsToolkit`. The second argument to `execute` is a `SessionContext` for authenticated API calls:
 
 ```ts
 // @noErrors
@@ -63,16 +67,14 @@ const createDraft = experimental_createTool("CREATE_DRAFT", {
 
 ### SessionContext
 
-The `ctx` object passed to extension tools provides:
-
 | Method | Description |
 |--------|-------------|
-| `ctx.proxyExecute(params)` | Make authenticated HTTP requests through Composio's auth layer. Params: `toolkit`, `endpoint`, `method`, `body?`, `parameters?` (array of `{ in: "query" \| "header", name, value }`). |
+| `ctx.proxyExecute(params)` | Authenticated HTTP request via Composio's auth layer. Params: `toolkit`, `endpoint`, `method`, `body?`, `parameters?` (array of `{ in: "query" \| "header", name, value }`). |
 | `ctx.execute(toolSlug, args)` | Execute any Composio native tool from within your custom tool. |
 
 ## Custom toolkit
 
-Group related tools under a namespace with `experimental_createToolkit`. Tools inside a toolkit must **not** use `extendsToolkit` — they inherit the toolkit identity instead:
+Group related tools under a namespace. Tools inside a toolkit must **not** use `extendsToolkit` — they inherit the toolkit identity instead:
 
 ```ts
 // @noErrors
@@ -98,7 +100,7 @@ const roleManager = experimental_createToolkit("ROLE_MANAGER", {
 
 ## Binding to a session
 
-Pass custom tools and toolkits via the `experimental` option when creating a session:
+Pass custom tools and toolkits via the `experimental` option:
 
 ```ts
 // @noErrors
@@ -119,7 +121,6 @@ const tools = await session.tools(); // Includes both remote and custom tools
 
 ## Slug rules
 
-- Tool slugs are automatically prefixed with `LOCAL_` (e.g. `GET_USER` becomes `LOCAL_GET_USER`)
-- Toolkit tools get both prefixes (e.g. `LOCAL_ROLE_MANAGER_SET_ROLE`)
-- Final slug must not exceed 60 characters
-- Slugs cannot start with `LOCAL_` or `COMPOSIO_`
+- Slugs are auto-prefixed with `LOCAL_` (e.g. `GET_USER` → `LOCAL_GET_USER`, `LOCAL_ROLE_MANAGER_SET_ROLE`)
+- Max 60 characters after prefixing
+- Cannot start with `LOCAL_` or `COMPOSIO_`
