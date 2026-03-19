@@ -1,7 +1,7 @@
 ---
 title: Configuring Sessions
-description: Enable toolkits, set auth configs, and select connected accounts
-keywords: [session, toolkits, auth configs, connected accounts]
+description: Enable toolkits, set auth configs, select connected accounts, and add custom tools
+keywords: [session, toolkits, auth configs, connected accounts, custom tools, beta]
 ---
 
 ## Creating a session
@@ -162,6 +162,118 @@ When executing a tool, the connected account is selected in this order:
 5. Error if no Composio managed auth scheme exists for the toolkit
 
 If a user has multiple connected accounts for a toolkit, the most recently connected one is used.
+
+## Custom tools (Beta)
+
+<Callout type="warn">
+Custom tools are experimental. The `experimental_` prefix and `experimental` session option may change in future releases. TypeScript only.
+</Callout>
+
+Custom tools let you define local tools that run in-process alongside remote Composio tools. There are three patterns:
+
+### Standalone tool
+
+A tool that doesn't need any Composio-managed authentication:
+
+```ts
+import { experimental_createTool } from "@composio/core";
+import { z } from "zod/v3";
+
+const getUser = experimental_createTool("GET_USER", {
+  name: "Get user",
+  description: "Look up an internal user by ID",
+  inputParams: z.object({
+    user_id: z.string().describe("User ID"),
+  }),
+  execute: async ({ user_id }) => {
+    // Your logic here — just return the result
+    return { name: "Alice", email: "alice@acme.com" };
+  },
+});
+```
+
+### Extension tool
+
+A tool that inherits authentication from an existing Composio toolkit. Use `extendsToolkit` to specify which toolkit, then call APIs through `ctx.proxyExecute()` or invoke other tools via `ctx.execute()`:
+
+```ts
+import { experimental_createTool } from "@composio/core";
+import { z } from "zod/v3";
+
+const createDraft = experimental_createTool("CREATE_DRAFT", {
+  name: "Create Gmail draft",
+  description: "Create a Gmail draft via the Gmail API",
+  extendsToolkit: "gmail",
+  inputParams: z.object({
+    to: z.string().describe("Recipient email"),
+    subject: z.string().describe("Email subject"),
+    body: z.string().describe("Email body"),
+  }),
+  execute: async (input, ctx) => {
+    // proxyExecute routes through the session's Gmail auth
+    const res = await ctx.proxyExecute({
+      toolkit: "gmail",
+      endpoint: "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+      method: "POST",
+      body: { message: { raw: btoa(`To: ${input.to}\r\nSubject: ${input.subject}\r\n\r\n${input.body}`) } },
+    });
+    return res.data as Record<string, unknown>;
+  },
+});
+```
+
+The `SessionContext` (`ctx`) provides:
+- **`ctx.proxyExecute(params)`** — Make authenticated HTTP requests through Composio's auth layer. Params: `toolkit`, `endpoint`, `method`, `body?`, `parameters?` (array of `{ in: "query" | "header", name, value }`).
+- **`ctx.execute(toolSlug, args)`** — Execute any Composio native tool from within your custom tool.
+
+### Custom toolkit
+
+Group related tools under a namespace using `experimental_createToolkit`:
+
+```ts
+import { experimental_createTool, experimental_createToolkit } from "@composio/core";
+import { z } from "zod/v3";
+
+const setRole = experimental_createTool("SET_ROLE", {
+  name: "Set role",
+  description: "Set a user's role",
+  inputParams: z.object({
+    user_id: z.string().describe("User ID"),
+    role: z.enum(["admin", "developer", "viewer"]).describe("New role"),
+  }),
+  execute: async ({ user_id, role }) => ({ user_id, role, updated: true }),
+});
+
+const roleManager = experimental_createToolkit("ROLE_MANAGER", {
+  name: "Role Manager",
+  description: "Manage user roles",
+  tools: [setRole],
+});
+```
+
+Tools inside a toolkit must **not** have `extendsToolkit` set — they inherit the toolkit identity instead.
+
+### Binding to a session
+
+Pass custom tools and toolkits via the `experimental` option:
+
+```ts
+import { Composio } from "@composio/core";
+
+const composio = new Composio();
+
+const session = await composio.create("user_123", {
+  toolkits: ["gmail"],
+  experimental: {
+    customTools: [getUser, createDraft],
+    customToolkits: [roleManager],
+  },
+});
+
+const tools = await session.tools(); // Includes both remote and custom tools
+```
+
+Custom tool slugs are automatically prefixed with `LOCAL_` (e.g. `GET_USER` → `LOCAL_GET_USER`, toolkit tools get `LOCAL_ROLE_MANAGER_SET_ROLE`). The final slug must not exceed 60 characters. Slugs cannot start with `LOCAL_` or `COMPOSIO_`.
 
 ## Session methods
 
