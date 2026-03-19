@@ -176,8 +176,9 @@ Custom tools let you define local tools that run in-process alongside remote Com
 A tool that doesn't need any Composio-managed authentication:
 
 ```ts
+// @noErrors
 import { experimental_createTool } from "@composio/core";
-import { z } from "zod/v3";
+import { z } from "zod";
 
 const getUser = experimental_createTool("GET_USER", {
   name: "Get user",
@@ -197,8 +198,9 @@ const getUser = experimental_createTool("GET_USER", {
 A tool that inherits authentication from an existing Composio toolkit. Use `extendsToolkit` to specify which toolkit, then call APIs through `ctx.proxyExecute()` or invoke other tools via `ctx.execute()`:
 
 ```ts
+// @noErrors
 import { experimental_createTool } from "@composio/core";
-import { z } from "zod/v3";
+import { z } from "zod";
 
 const createDraft = experimental_createTool("CREATE_DRAFT", {
   name: "Create Gmail draft",
@@ -231,8 +233,9 @@ The `SessionContext` (`ctx`) provides:
 Group related tools under a namespace using `experimental_createToolkit`:
 
 ```ts
+// @noErrors
 import { experimental_createTool, experimental_createToolkit } from "@composio/core";
-import { z } from "zod/v3";
+import { z } from "zod";
 
 const setRole = experimental_createTool("SET_ROLE", {
   name: "Set role",
@@ -258,6 +261,7 @@ Tools inside a toolkit must **not** have `extendsToolkit` set — they inherit t
 Pass custom tools and toolkits via the `experimental` option:
 
 ```ts
+// @noErrors
 import { Composio } from "@composio/core";
 
 const composio = new Composio();
