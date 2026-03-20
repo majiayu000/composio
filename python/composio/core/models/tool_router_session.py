@@ -148,9 +148,7 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
 
         return t.cast(
             TToolCollection,
-            t.cast(
-                AgenticProvider[TTool, TToolCollection], self._provider
-            ).wrap_tools(
+            t.cast(AgenticProvider[TTool, TToolCollection], self._provider).wrap_tools(
                 tools=router_tools,
                 execute_tool=execute_fn,
             ),
@@ -175,12 +173,13 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
                     from composio.core.models._modifiers import apply_modifier_by_type
                     from composio.core.models.tools import ToolExecuteParams
 
+                    type_before: t.Literal["before_execute"] = "before_execute"
                     params: ToolExecuteParams = {"arguments": arguments}
                     modified = apply_modifier_by_type(
                         modifiers=modifiers,
                         toolkit="composio",
                         tool=slug,
-                        type="before_execute",
+                        type=type_before,
                         request=params,
                     )
                     processed_arguments = modified.get("arguments", arguments)
@@ -191,11 +190,12 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
 
                 # Apply after_execute modifiers
                 if modifiers is not None:
+                    type_after: t.Literal["after_execute"] = "after_execute"
                     result = apply_modifier_by_type(
                         modifiers=modifiers,
                         toolkit="composio",
                         tool=slug,
-                        type="after_execute",
+                        type=type_after,
                         response=result,
                     )
 
@@ -208,9 +208,7 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
 
         return routing_execute
 
-    def _parse_tool_item(
-        self, item: t.Any
-    ) -> t.Dict[str, t.Any]:
+    def _parse_tool_item(self, item: t.Any) -> t.Dict[str, t.Any]:
         """Parse an individual tool item from COMPOSIO_MULTI_EXECUTE_TOOL's tools array."""
         if not isinstance(item, dict):
             return {"tool_slug": "", "arguments": {}}
@@ -308,9 +306,7 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
         # Merge results into the backend's results[] format
         remote_data = (remote_result or {}).get("data", {})
         remote_results_list: t.List[t.Any] = (
-            remote_data.get("results", [])
-            if isinstance(remote_data, dict)
-            else []
+            remote_data.get("results", []) if isinstance(remote_data, dict) else []
         )
 
         # Build local result entries matching backend format
@@ -358,9 +354,7 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
         merged_data["results"] = merged
 
         # Build error message — include remote batch error if present
-        remote_batch_error = (
-            remote_result.get("error") if remote_result else None
-        )
+        remote_batch_error = remote_result.get("error") if remote_result else None
         if has_any_error:
             parts = []
             if failed_count > 0:
@@ -517,9 +511,7 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
         # Check if this is a local tool (by original or final slug)
         entry = find_custom_tool(self._custom_tools_map, tool_slug)
         if entry and self._session_context:
-            result = execute_custom_tool(
-                entry, arguments or {}, self._session_context
-            )
+            result = execute_custom_tool(entry, arguments or {}, self._session_context)
             # Normalize to match SessionExecuteResponse shape (data, error, log_id)
             return {
                 "data": result["data"],
@@ -551,9 +543,7 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
         entries = list(self._custom_tools_map.by_final_slug.values())
         if toolkit:
             entries = [
-                e
-                for e in entries
-                if e.toolkit and e.toolkit.lower() == toolkit.lower()
+                e for e in entries if e.toolkit and e.toolkit.lower() == toolkit.lower()
             ]
 
         return [
@@ -580,9 +570,7 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
         for tk in self._custom_tools_map.toolkits:
             tools = []
             for tool in tk.tools:
-                entry = self._custom_tools_map.by_original_slug.get(
-                    tool.slug.upper()
-                )
+                entry = self._custom_tools_map.by_original_slug.get(tool.slug.upper())
                 tools.append(
                     RegisteredCustomTool(
                         slug=entry.final_slug if entry else tool.slug,

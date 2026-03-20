@@ -320,9 +320,7 @@ def experimental_create_toolkit(
                 f"they inherit the toolkit identity instead."
             )
         # Early length validation with toolkit slug
-        _validate_slug_length(
-            tool.slug, slug, f'{context}("{slug}")'
-        )
+        _validate_slug_length(tool.slug, slug, f'{context}("{slug}")')
 
     return CustomToolkit(
         slug=slug,
@@ -442,9 +440,7 @@ def build_custom_tools_map(
     if toolkits:
         for tk in toolkits:
             for handle in tk.tools:
-                add_entry(
-                    handle, _build_final_slug(handle.slug, tk.slug), tk.slug
-                )
+                add_entry(handle, _build_final_slug(handle.slug, tk.slug), tk.slug)
 
     return CustomToolsMap(
         by_final_slug=by_final_slug,
@@ -467,9 +463,7 @@ def build_custom_tools_map_from_response(
 
     # Build lookup from original slug → handle + toolkit
     # Detect duplicate original slugs across standalone tools and toolkit tools
-    handles_by_original: t.Dict[
-        str, t.Tuple[CustomTool, t.Optional[str]]
-    ] = {}
+    handles_by_original: t.Dict[str, t.Tuple[CustomTool, t.Optional[str]]] = {}
     for handle in tools:
         key = handle.slug.upper()
         if key in handles_by_original:
@@ -512,8 +506,8 @@ def build_custom_tools_map_from_response(
     # Map toolkit custom tools from response
     if experimental and experimental.custom_toolkits:
         for ctk in experimental.custom_toolkits:
-            for ct in ctk.tools:
-                add_entry(ct.slug, ct.original_slug, ctk.slug)
+            for ctk_tool in ctk.tools:
+                add_entry(ctk_tool.slug, ctk_tool.original_slug, ctk.slug)
 
     return CustomToolsMap(
         by_final_slug=by_final_slug,

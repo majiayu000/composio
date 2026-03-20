@@ -33,16 +33,18 @@ def proxy_execute_impl(
     parameters: t.Optional[t.List[t.Dict[str, t.Any]]] = None,
 ) -> ProxyExecuteResponse:
     """Shared proxy execute implementation used by SessionContextImpl and ToolRouterSession."""
-    # Transform parameters to API format
-    api_params: t.List[t.Dict[str, t.Any]] = []
+    # Transform parameters to API format using the composio_client Parameter type
+    from composio_client.types.tool_router.session_proxy_execute_params import Parameter
+
+    api_params: t.List[Parameter] = []
     if parameters:
         for p in parameters:
             api_params.append(
-                {
-                    "name": p["name"],
-                    "type": p.get("in", p.get("type", "header")),
-                    "value": str(p["value"]),
-                }
+                Parameter(
+                    name=p["name"],
+                    type=p.get("in", p.get("type", "header")),  # type: ignore[typeddict-item]
+                    value=str(p["value"]),
+                )
             )
 
     response = client.tool_router.session.proxy_execute(
