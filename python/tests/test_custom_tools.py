@@ -706,9 +706,9 @@ class TestToolRouterSessionCustomTools:
 
     def test_execute_routes_to_remote(self, mock_session_deps):
         mock_response = MagicMock()
-        mock_session_deps["client"].tool_router.session.execute.return_value = (
-            mock_response
-        )
+        mock_session_deps[
+            "client"
+        ].tool_router.session.execute.return_value = mock_response
 
         session = ToolRouterSession(
             client=mock_session_deps["client"],
@@ -853,7 +853,11 @@ class TestMultiExecuteRouting:
         mock_tools_model = MagicMock()
 
         remote_response = {
-            "data": {"results": [{"tool_slug": "GMAIL_SEND", "response": {"successful": True}}]},
+            "data": {
+                "results": [
+                    {"tool_slug": "GMAIL_SEND", "response": {"successful": True}}
+                ]
+            },
             "error": None,
             "successful": True,
         }
@@ -920,9 +924,7 @@ class TestMultiExecuteRouting:
             lambda slug, args: fallback_result
         )
 
-        result = session._route_multi_execute(
-            {"tools": []}, mock_tools_model, None
-        )
+        result = session._route_multi_execute({"tools": []}, mock_tools_model, None)
         # Should fall back to remote
         assert result == fallback_result
 
