@@ -1,11 +1,7 @@
 """
-Custom Tools Agent Test — full LLM agent loop with OpenAI Agents SDK.
+Custom Tools Agent Test — decorator API with OpenAI Agents SDK.
 
-Tests all custom tool patterns end-to-end through an actual multi-turn agent:
-1. Standalone custom tool (GET_USER) — local execution, no auth
-2. Custom toolkit tool (SET_ROLE) — local execution, grouped under ROLE_MANAGER
-3. Extension tool (CREATE_DRAFT) — local execution, inherits Gmail auth via proxy_execute
-4. Remote Composio tool (weathermap) — backend execution
+Tests all custom tool patterns end-to-end through a real LLM agent loop.
 
 Usage:
     COMPOSIO_API_KEY=... OPENAI_API_KEY=... python examples/custom_tools_agent_test.py
@@ -19,13 +15,15 @@ import sys
 from agents import Agent, Runner
 from pydantic import BaseModel, Field
 
-from composio import Composio, experimental_create_tool, experimental_create_toolkit
+from composio import Composio
 from composio_openai_agents import OpenAIAgentsProvider
 
+composio = Composio(provider=OpenAIAgentsProvider())
 
-# ── Custom tools ────────────────────────────────────────────────
 
-# 1. Standalone tool (no auth)
+# ── 1. Standalone tool ──────────────────────────────────────────
+
+
 class UserLookupInput(BaseModel):
     user_id: str = Field(description="User ID (e.g. user-1)")
 
@@ -35,97 +33,73 @@ USERS = {
     "user-2": {"name": "Bob Smith", "email": "bob@acme.com", "role": "developer"},
 }
 
-get_user = experimental_create_tool(
-    "GET_USER",
-    name="Get user",
-    description="Look up an internal user by ID. Returns name, email, and role.",
-    input_params=UserLookupInput,
-    execute=lambda input, ctx: USERS.get(input.user_id)
-    or (_ for _ in ()).throw(ValueError(f'User "{input.user_id}" not found')),
-)
+
+@composio.experimental.tool()
+def get_user(input: UserLookupInput, ctx):
+    """Look up an internal user by ID. Returns name, email, and role."""
+    user = USERS.get(input.user_id)
+    if not user:
+        raise ValueError(f'User "{input.user_id}" not found')
+    return user
 
 
-# 2. Custom toolkit with grouped tools
-class SetRoleInput(BaseModel):
-    user_id: str = Field(description="User ID")
-    role: str = Field(description="New role (admin, developer, viewer)")
+# ── 2. Extension tool (Gmail proxy) ─────────────────────────────
 
 
-role_manager = experimental_create_toolkit(
-    "ROLE_MANAGER",
-    name="Role Manager",
-    description="Manage user roles in the system",
-    tools=[
-        experimental_create_tool(
-            "SET_ROLE",
-            name="Set role",
-            description="Set a user's role. Returns confirmation with updated role.",
-            input_params=SetRoleInput,
-            execute=lambda input, ctx: {
-                "user_id": input.user_id,
-                "role": input.role,
-                "updated": True,
-                "message": f"Role for {input.user_id} changed to {input.role}",
-            },
-        ),
-    ],
-)
-
-
-# 3. Extension tool — inherits Gmail auth, calls real API via proxy_execute
 class DraftInput(BaseModel):
     to: str = Field(description="Recipient email address")
     subject: str = Field(description="Email subject")
     body: str = Field(description="Email body (plain text)")
 
 
-def create_draft_fn(input: DraftInput, ctx):
-    """Create a real Gmail draft via proxy_execute."""
-    raw_message = (
-        f"To: {input.to}\r\n"
-        f"Subject: {input.subject}\r\n"
-        f"Content-Type: text/plain; charset=UTF-8\r\n"
-        f"\r\n"
-        f"{input.body}"
+@composio.experimental.tool(extends_toolkit="gmail")
+def create_draft(input: DraftInput, ctx):
+    """Create a real Gmail draft. Appears in the user's drafts folder."""
+    raw_msg = (
+        f"To: {input.to}\r\nSubject: {input.subject}\r\n"
+        f"Content-Type: text/plain; charset=UTF-8\r\n\r\n{input.body}"
     )
-    raw = base64.urlsafe_b64encode(raw_message.encode()).decode().rstrip("=")
-
+    raw = base64.urlsafe_b64encode(raw_msg.encode()).decode().rstrip("=")
     res = ctx.proxy_execute(
         toolkit="gmail",
         endpoint="https://gmail.googleapis.com/gmail/v1/users/me/drafts",
         method="POST",
         body={"message": {"raw": raw}},
     )
-
     if res["status"] != 200:
-        raise RuntimeError(f"Gmail API error {res['status']}: {res.get('data')}")
+        raise RuntimeError(f"Gmail API error {res['status']}")
     data = res["data"]
-    return {
-        "draft_id": data["id"],
-        "message_id": data["message"]["id"],
-        "to": input.to,
-        "subject": input.subject,
-    }
+    return {"draft_id": data["id"], "to": input.to, "subject": input.subject}
 
 
-create_draft = experimental_create_tool(
-    "CREATE_DRAFT",
-    name="Create Gmail draft",
-    description="Create a real Gmail draft. Appears in the user's drafts folder.",
-    extends_toolkit="gmail",
-    input_params=DraftInput,
-    execute=create_draft_fn,
+# ── 3. Custom toolkit ───────────────────────────────────────────
+
+
+class SetRoleInput(BaseModel):
+    user_id: str = Field(description="User ID")
+    role: str = Field(description="New role (admin, developer, viewer)")
+
+
+role_manager = composio.experimental.Toolkit(
+    slug="ROLE_MANAGER",
+    name="Role Manager",
+    description="Manage user roles in the system",
 )
 
 
-# ── Test runner ─────────────────────────────────────────────────
+@role_manager.tool()
+def set_role(input: SetRoleInput, ctx):
+    """Set a user's role. Returns confirmation."""
+    return {"user_id": input.user_id, "role": input.role, "updated": True}
 
 
-async def run_test(composio, prompt, test_name):
-    """Run a single agent test with the given prompt."""
-    print(f"\n{'='*60}")
+# ── Agent test runner ───────────────────────────────────────────
+
+
+async def run_test(prompt, test_name):
+    print(f"\n{'=' * 60}")
     print(f"TEST: {test_name}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     session = composio.create(
         user_id="default",
@@ -136,9 +110,7 @@ async def run_test(composio, prompt, test_name):
             "custom_toolkits": [role_manager],
         },
     )
-    print(f"Session: {session.session_id}")
     tools = session.tools()
-    print(f"Tools: {len(tools)}")
 
     agent = Agent(
         name="Assistant",
@@ -161,72 +133,59 @@ async def run_test(composio, prompt, test_name):
 
 
 async def main():
-    composio = Composio(provider=OpenAIAgentsProvider())
-
     results = []
-
-    # Test 1: Standalone custom tool only
-    ok = await run_test(
-        composio,
-        "Look up user-2's information",
-        "Standalone custom tool (GET_USER)",
+    results.append(
+        ("Standalone (GET_USER)", await run_test("Look up user-2", "Standalone"))
     )
-    results.append(("Standalone custom tool", ok))
-
-    # Test 2: Custom toolkit tool
-    ok = await run_test(
-        composio,
-        "Set user-1's role to developer",
-        "Custom toolkit tool (SET_ROLE)",
+    results.append(
+        (
+            "Toolkit (SET_ROLE)",
+            await run_test("Set user-1 role to developer", "Toolkit"),
+        )
     )
-    results.append(("Custom toolkit tool", ok))
-
-    # Test 3: Mixed — local + local toolkit
-    ok = await run_test(
-        composio,
-        "Look up user-1 and then set their role to viewer",
-        "Mixed local tools (GET_USER + SET_ROLE)",
+    results.append(
+        (
+            "Mixed local",
+            await run_test(
+                "Look up user-1 and set their role to viewer", "Mixed local"
+            ),
+        )
     )
-    results.append(("Mixed local tools", ok))
-
-    # Test 4: Remote Composio tool (weathermap, no auth needed)
-    ok = await run_test(
-        composio,
-        "What is the current weather in San Francisco?",
-        "Remote Composio tool (weathermap)",
+    results.append(
+        (
+            "Remote (weathermap)",
+            await run_test("What is the weather in Tokyo?", "Remote"),
+        )
     )
-    results.append(("Remote Composio tool", ok))
-
-    # Test 5: Gmail proxy execute (CREATE_DRAFT via ctx.proxy_execute)
-    ok = await run_test(
-        composio,
-        'Create a Gmail draft to bob@acme.com with subject "Hello from Python SDK" and body "Testing custom tools proxy_execute!"',
-        "Gmail proxy execute (CREATE_DRAFT)",
+    results.append(
+        (
+            "Gmail proxy",
+            await run_test(
+                'Create a Gmail draft to bob@acme.com with subject "Test" and body "Hello!"',
+                "Gmail proxy",
+            ),
+        )
     )
-    results.append(("Gmail proxy (CREATE_DRAFT)", ok))
-
-    # Test 6: Mixed all paths — local + proxy + remote in one turn
-    ok = await run_test(
-        composio,
-        "Look up user-1, then draft them an email saying hi and include the current weather in San Francisco in the body",
-        "Mixed all paths (GET_USER + CREATE_DRAFT + weathermap)",
+    results.append(
+        (
+            "Mixed all",
+            await run_test(
+                "Look up user-1, draft them an email saying hi, include weather in SF",
+                "Mixed all",
+            ),
+        )
     )
-    results.append(("Mixed all paths", ok))
 
-    # Summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("RESULTS")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for name, ok in results:
-        status = "PASS" if ok else "FAIL"
-        print(f"  [{status}] {name}")
-    passed = sum(1 for _, ok in results if ok)
-    print(f"\n{passed}/{len(results)} tests passed")
+        print(f"  [{'PASS' if ok else 'FAIL'}] {name}")
+    print(f"\n{sum(1 for _, ok in results if ok)}/{len(results)} passed")
 
 
 if __name__ == "__main__":
     if not os.environ.get("OPENAI_API_KEY"):
         print("Error: OPENAI_API_KEY env var required")
         sys.exit(1)
-
     asyncio.run(main())
