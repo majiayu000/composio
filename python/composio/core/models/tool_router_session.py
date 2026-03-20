@@ -190,13 +190,15 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
 
                 # Apply after_execute modifiers
                 if modifiers is not None:
+                    from composio.core.models.tools import ToolExecutionResponse
+
                     type_after: t.Literal["after_execute"] = "after_execute"
                     result = apply_modifier_by_type(
                         modifiers=modifiers,
                         toolkit="composio",
                         tool=slug,
                         type=type_after,
-                        response=result,
+                        response=t.cast(ToolExecutionResponse, result),
                     )
 
                 return result
