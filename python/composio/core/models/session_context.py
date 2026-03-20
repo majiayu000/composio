@@ -111,11 +111,17 @@ class SessionContextImpl:
         if entry:
             return execute_custom_tool(entry, arguments, self)
 
+        # Serialize any Pydantic model instances before sending to remote API
+        # (custom tools receive validated Pydantic inputs that may be forwarded)
+        from composio.core.models.tools import _serialize_arguments
+
+        serialized = _serialize_arguments(arguments)
+
         # Fall back to remote execution
         response = self._client.tool_router.session.execute(
             session_id=self._session_id,
             tool_slug=tool_slug,
-            arguments=arguments,
+            arguments=serialized,
         )
         return {
             "data": response.data if hasattr(response, "data") else {},

@@ -161,13 +161,45 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
         tools_model: t.Any,
         modifiers: t.Optional["Modifiers"],
     ) -> t.Callable[..., t.Any]:
-        """Create an execute function that routes local/remote tools."""
+        """Create an execute function that routes local/remote tools.
+
+        Applies before_execute/after_execute modifiers around the overall
+        COMPOSIO_MULTI_EXECUTE_TOOL call, consistent with the standard path.
+        """
 
         def routing_execute(slug: str, arguments: t.Dict) -> t.Dict:
             if slug == COMPOSIO_MULTI_EXECUTE_TOOL:
-                return self._route_multi_execute(
-                    arguments, tools_model, modifiers
+                # Apply before_execute modifiers
+                processed_arguments = arguments
+                if modifiers is not None:
+                    from composio.core.models._modifiers import apply_modifier_by_type
+                    from composio.core.models.tools import ToolExecuteParams
+
+                    params: ToolExecuteParams = {"arguments": arguments}
+                    modified = apply_modifier_by_type(
+                        modifiers=modifiers,
+                        toolkit="composio",
+                        tool=slug,
+                        type="before_execute",
+                        request=params,
+                    )
+                    processed_arguments = modified.get("arguments", arguments)
+
+                result = self._route_multi_execute(
+                    processed_arguments, tools_model, modifiers
                 )
+
+                # Apply after_execute modifiers
+                if modifiers is not None:
+                    result = apply_modifier_by_type(
+                        modifiers=modifiers,
+                        toolkit="composio",
+                        tool=slug,
+                        type="after_execute",
+                        response=result,
+                    )
+
+                return result
             # Non-multi-execute meta tools always go to backend
             return tools_model._wrap_execute_tool_for_tool_router(
                 session_id=self.session_id,
@@ -325,13 +357,23 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
             merged_data.update(remote_data)
         merged_data["results"] = merged
 
+        # Build error message — include remote batch error if present
+        remote_batch_error = (
+            remote_result.get("error") if remote_result else None
+        )
+        if has_any_error:
+            parts = []
+            if failed_count > 0:
+                parts.append(f"{failed_count} out of {len(merged)} tools failed")
+            if remote_batch_error:
+                parts.append(f"remote batch error: {remote_batch_error}")
+            error_msg = "; ".join(parts) if parts else "execution failed"
+        else:
+            error_msg = None
+
         return {
             "data": merged_data,
-            "error": (
-                f"{failed_count} out of {len(merged)} tools failed"
-                if has_any_error
-                else None
-            ),
+            "error": error_msg,
             "successful": not has_any_error,
         }
 
@@ -485,17 +527,13 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
                 "log_id": "",
             }
 
-        # Remote execution — normalize to dict for consistent return type
-        response = self._client.tool_router.session.execute(
+        # Remote execution — return the SessionExecuteResponse model as-is
+        # to preserve backward compatibility for callers using attribute access
+        return self._client.tool_router.session.execute(
             session_id=self.session_id,
             tool_slug=tool_slug,
             arguments=arguments if arguments is not None else omit,
         )
-        return {
-            "data": response.data if hasattr(response, "data") else {},
-            "error": response.error if hasattr(response, "error") else None,
-            "log_id": response.log_id if hasattr(response, "log_id") else "",
-        }
 
     def custom_tools(
         self, *, toolkit: t.Optional[str] = None
