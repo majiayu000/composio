@@ -1,5 +1,14 @@
 from .auth_configs import AuthConfigs
 from .connected_accounts import ConnectedAccounts
+from .custom_tool import experimental_create_tool, experimental_create_toolkit
+from .custom_tool_types import (
+    CustomTool,
+    CustomToolkit,
+    ProxyExecuteResponse,
+    RegisteredCustomTool,
+    RegisteredCustomToolkit,
+    SessionContext,
+)
 from .mcp import MCP
 from .tool_router import ToolRouter
 from .tool_router_session import ToolRouterSession
@@ -24,8 +33,14 @@ __all__ = [
     "ConnectionExpiredEvent",
     "ConnectionState",
     "ConnectionStatusEnum",
+    "CustomTool",
+    "CustomToolkit",
     "MCP",
+    "ProxyExecuteResponse",
+    "RegisteredCustomTool",
+    "RegisteredCustomToolkit",
     "RemoteFile",
+    "SessionContext",
     "SingleConnectedAccountDetailedResponse",
     "ToolRouter",
     "ToolRouterSession",
@@ -36,5 +51,7 @@ __all__ = [
     "WebhookConnectionMetadata",
     "WebhookEvent",
     "WebhookEventType",
+    "experimental_create_tool",
+    "experimental_create_toolkit",
     "is_connection_expired_event",
 ]
