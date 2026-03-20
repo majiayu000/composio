@@ -491,7 +491,8 @@ def build_custom_tools_map_from_response(
         entry = CustomToolsMapEntry(
             handle=handle, final_slug=final_slug, toolkit=resolved_toolkit
         )
-        by_final_slug[final_slug] = entry
+        # Store with uppercased keys to match find_custom_tool's .upper() lookup
+        by_final_slug[final_slug.upper()] = entry
         by_original_slug[original_slug.upper()] = entry
 
     # Map standalone custom tools from response

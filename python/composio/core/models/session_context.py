@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import typing as t
 
+from composio_client import omit
+
 from composio.client import HttpClient
 from composio.core.models.custom_tool_execution import (
     execute_custom_tool,
@@ -18,6 +20,55 @@ from composio.core.models.custom_tool_types import (
     ProxyExecuteResponse,
 )
 from composio.core.models.tools import ToolExecutionResponse
+
+
+def proxy_execute_impl(
+    client: HttpClient,
+    session_id: str,
+    *,
+    toolkit: str,
+    endpoint: str,
+    method: t.Literal["GET", "POST", "PUT", "DELETE", "PATCH"],
+    body: t.Any = None,
+    parameters: t.Optional[t.List[t.Dict[str, t.Any]]] = None,
+) -> ProxyExecuteResponse:
+    """Shared proxy execute implementation used by SessionContextImpl and ToolRouterSession."""
+    # Transform parameters to API format
+    api_params: t.List[t.Dict[str, t.Any]] = []
+    if parameters:
+        for p in parameters:
+            api_params.append(
+                {
+                    "name": p["name"],
+                    "type": p.get("in", p.get("type", "header")),
+                    "value": str(p["value"]),
+                }
+            )
+
+    response = client.tool_router.session.proxy_execute(
+        session_id=session_id,
+        toolkit_slug=toolkit,
+        endpoint=endpoint,
+        method=method,
+        body=body if body is not None else omit,
+        parameters=api_params if api_params else omit,
+    )
+
+    result: ProxyExecuteResponse = {
+        "status": int(response.status),
+        "data": response.data,
+        "headers": response.headers,
+    }
+
+    if response.binary_data:
+        result["binary_data"] = {
+            "content_type": response.binary_data.content_type,
+            "size": int(response.binary_data.size),
+            "url": response.binary_data.url,
+            "expires_at": response.binary_data.expires_at,
+        }
+
+    return result
 
 
 class SessionContextImpl:
@@ -81,46 +132,13 @@ class SessionContextImpl:
         body: t.Any = None,
         parameters: t.Optional[t.List[t.Dict[str, t.Any]]] = None,
     ) -> ProxyExecuteResponse:
-        """Proxy API calls through Composio's auth layer.
-
-        The backend resolves the connected account from the toolkit
-        within the session.
-        """
-        from composio_client import omit
-
-        # Transform parameters to API format
-        api_params: t.List[t.Dict[str, t.Any]] = []
-        if parameters:
-            for p in parameters:
-                api_params.append(
-                    {
-                        "name": p["name"],
-                        "type": p.get("in", p.get("type", "header")),
-                        "value": str(p["value"]),
-                    }
-                )
-
-        response = self._client.tool_router.session.proxy_execute(
-            session_id=self._session_id,
-            toolkit_slug=toolkit,
+        """Proxy API calls through Composio's auth layer."""
+        return proxy_execute_impl(
+            self._client,
+            self._session_id,
+            toolkit=toolkit,
             endpoint=endpoint,
             method=method,
-            body=body if body is not None else omit,
-            parameters=api_params if api_params else omit,
+            body=body,
+            parameters=parameters,
         )
-
-        result: ProxyExecuteResponse = {
-            "status": int(response.status),
-            "data": response.data,
-            "headers": response.headers,
-        }
-
-        if response.binary_data:
-            result["binary_data"] = {
-                "content_type": response.binary_data.content_type,
-                "size": int(response.binary_data.size),
-                "url": response.binary_data.url,
-                "expires_at": response.binary_data.expires_at,
-            }
-
-        return result

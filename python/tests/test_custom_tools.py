@@ -11,7 +11,7 @@ Covers:
 - Multi-execute routing (all-local, all-remote, mixed, parallel)
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel, Field
@@ -26,12 +26,6 @@ from composio.core.models.custom_tool import (
 from composio.core.models.custom_tool_execution import (
     execute_custom_tool,
     find_custom_tool,
-)
-from composio.core.models.custom_tool_types import (
-    CustomToolsMap,
-    CustomToolsMapEntry,
-    RegisteredCustomTool,
-    RegisteredCustomToolkit,
 )
 from composio.core.models.session_context import SessionContextImpl
 from composio.core.models.tool_router_session import ToolRouterSession
@@ -484,7 +478,6 @@ class TestBuildMapFromResponse:
         mock_ctk.tools = [mock_ctk_tool]
         mock_exp.custom_toolkits = [mock_ctk]
 
-        set_role = role_toolkit.tools[0]
         m = build_custom_tools_map_from_response(
             [grep_tool, email_tool],
             [role_toolkit],

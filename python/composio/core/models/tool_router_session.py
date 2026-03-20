@@ -575,39 +575,14 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
         :param parameters: Query/header parameters
         :returns: Proxied API response
         """
-        # Transform parameters to API format
-        api_params: t.List[t.Dict[str, t.Any]] = []
-        if parameters:
-            for p in parameters:
-                api_params.append(
-                    {
-                        "name": p["name"],
-                        "type": p.get("in", p.get("type", "header")),
-                        "value": str(p["value"]),
-                    }
-                )
+        from composio.core.models.session_context import proxy_execute_impl
 
-        response = self._client.tool_router.session.proxy_execute(
-            session_id=self.session_id,
-            toolkit_slug=toolkit,
+        return proxy_execute_impl(
+            self._client,
+            self.session_id,
+            toolkit=toolkit,
             endpoint=endpoint,
             method=method,
-            body=body if body is not None else omit,
-            parameters=api_params if api_params else omit,
+            body=body,
+            parameters=parameters,
         )
-
-        result: ProxyExecuteResponse = {
-            "status": int(response.status),
-            "data": response.data,
-            "headers": response.headers,
-        }
-
-        if response.binary_data:
-            result["binary_data"] = {
-                "content_type": response.binary_data.content_type,
-                "size": int(response.binary_data.size),
-                "url": response.binary_data.url,
-                "expires_at": response.binary_data.expires_at,
-            }
-
-        return result
