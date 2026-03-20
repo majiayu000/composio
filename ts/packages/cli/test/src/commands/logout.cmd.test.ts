@@ -16,7 +16,7 @@ describe('CLI: composio logout', () => {
           const expectedUserData = UserDataWithDefaults.make({
             apiKey: Option.none(),
             baseURL: 'https://backend.composio.dev',
-            webURL: 'https://platform.composio.dev',
+            webURL: 'https://dashboard.composio.dev/',
             orgId: Option.none(),
             projectId: Option.none(),
             testUserId: Option.none(),
@@ -53,7 +53,7 @@ describe('CLI: composio logout', () => {
             UserDataWithDefaults.make({
               apiKey: Option.some('api_key_already_logged_in'),
               baseURL: 'https://backend.composio.dev',
-              webURL: 'https://platform.composio.dev',
+              webURL: 'https://dashboard.composio.dev/',
               orgId: Option.none(),
               projectId: Option.none(),
               testUserId: Option.none(),

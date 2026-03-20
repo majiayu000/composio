@@ -1,7 +1,7 @@
 {
   "name": "@composio/core",
   "type": "module",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "",
   "main": "src/index.ts",
   "publishConfig": {
@@ -131,7 +131,7 @@
   ],
   "scripts": {
     "clean": "git clean -xdf node_modules",
-    "build": "bun run --bun tsdown",
+    "build": "pnpm exec tsdown",
     "test": "vitest run",
     "typecheck": "tsc --noEmit --skipLibCheck && tsc --noEmit --skipLibCheck -p tsconfig.type-tests.json",
     "generate:docs": "tsx scripts/generate-docs.ts"

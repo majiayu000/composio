@@ -30,7 +30,7 @@ describe('Config', () => {
             LOG_LEVEL: Option.none(),
             ORG_ID: Option.none(),
             PROJECT_ID: Option.none(),
-            WEB_URL: 'https://platform.composio.dev',
+            WEB_URL: 'https://dashboard.composio.dev/',
           })
         );
       });
@@ -57,7 +57,7 @@ describe('Config', () => {
             LOG_LEVEL: Option.none(),
             ORG_ID: Option.none(),
             PROJECT_ID: Option.none(),
-            WEB_URL: 'https://platform.composio.dev',
+            WEB_URL: 'https://dashboard.composio.dev/',
           })
         );
       });
@@ -307,7 +307,7 @@ describe('Config', () => {
             USER_API_KEY: Option.none(),
             ENVIRONMENT: Option.none(),
             BASE_URL: 'https://backend.composio.dev',
-            WEB_URL: 'https://platform.composio.dev',
+            WEB_URL: 'https://dashboard.composio.dev/',
             CACHE_DIR: Option.none(),
             LOG_LEVEL: Option.none(),
             ORG_ID: Option.none(),
@@ -332,7 +332,7 @@ describe('Config', () => {
             USER_API_KEY: Option.none(),
             ENVIRONMENT: Option.none(),
             BASE_URL: 'https://backend.composio.dev',
-            WEB_URL: 'https://platform.composio.dev',
+            WEB_URL: 'https://dashboard.composio.dev/',
             CACHE_DIR: Option.none(),
             LOG_LEVEL: Option.none(),
             ORG_ID: Option.none(),

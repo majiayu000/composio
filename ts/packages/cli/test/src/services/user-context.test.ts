@@ -32,7 +32,7 @@ describe('ComposioUserContext', () => {
           const expectedUserData = UserDataWithDefaults.make({
             apiKey: Option.none(),
             baseURL: 'https://backend.composio.dev',
-            webURL: 'https://platform.composio.dev',
+            webURL: 'https://dashboard.composio.dev/',
             orgId: Option.none(),
             projectId: Option.none(),
             testUserId: Option.none(),
@@ -63,7 +63,7 @@ describe('ComposioUserContext', () => {
           const expectedUserData = UserDataWithDefaults.make({
             apiKey: Option.some('api_key'),
             baseURL: 'https://test.composio.localhost',
-            webURL: 'https://platform.composio.dev',
+            webURL: 'https://dashboard.composio.dev/',
             orgId: Option.none(),
             projectId: Option.none(),
             testUserId: Option.none(),
@@ -109,7 +109,7 @@ describe('ComposioUserContext', () => {
           const expectedUserData = UserData.make({
             apiKey: Option.some('api_key'),
             baseURL: Option.some('https://test.composio.localhost'),
-            webURL: Option.some('https://platform.composio.dev'),
+            webURL: Option.some('https://dashboard.composio.dev/'),
             orgId: Option.none(),
             projectId: Option.none(),
             testUserId: Option.none(),
@@ -149,7 +149,7 @@ describe('ComposioUserContext', () => {
           const expectedUserData = UserData.make({
             apiKey: Option.some('api_key'),
             baseURL: Option.none(),
-            webURL: Option.some('https://platform.composio.dev'),
+            webURL: Option.some('https://dashboard.composio.dev/'),
             orgId: Option.none(),
             projectId: Option.none(),
             testUserId: Option.none(),
@@ -198,7 +198,7 @@ describe('ComposioUserContext', () => {
           const expectedUserData = UserDataWithDefaults.make({
             apiKey: Option.none(),
             baseURL: 'https://backend.composio.dev',
-            webURL: 'https://platform.composio.dev',
+            webURL: 'https://dashboard.composio.dev/',
             orgId: Option.none(),
             projectId: Option.none(),
             testUserId: Option.none(),
@@ -243,7 +243,7 @@ describe('ComposioUserContext', () => {
           const expectedUserData = UserDataWithDefaults.make({
             apiKey: Option.none(),
             baseURL: 'https://backend.composio.dev',
-            webURL: 'https://platform.composio.dev',
+            webURL: 'https://dashboard.composio.dev/',
             orgId: Option.none(),
             projectId: Option.none(),
             testUserId: Option.none(),
@@ -280,7 +280,7 @@ describe('ComposioUserContext', () => {
           const expectedUserData = UserDataWithDefaults.make({
             apiKey: Option.none(),
             baseURL: 'https://backend.composio.dev',
-            webURL: 'https://platform.composio.dev',
+            webURL: 'https://dashboard.composio.dev/',
             orgId: Option.none(),
             projectId: Option.none(),
             testUserId: Option.none(),

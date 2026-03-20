@@ -49,7 +49,7 @@ By default, this file is stored in `~/.composio`, but you can specify a custom l
 | ---------------------- | ---------------- | ------------------------------------------------------------------ | ----------------------------- |
 | COMPOSIO_API_KEY       | `api_key`        | Composio backend API key                                           | None                          |
 | COMPOSIO_BASE_URL      | `base_url`       | The base URL of the Composio backend API                           | https://backend.composio.dev  |
-| COMPOSIO_WEB_URL       | `web_url`        | The base URL of the Composio web app                               | https://platform.composio.dev |
+| COMPOSIO_WEB_URL       | `web_url`        | The base URL of the Composio web app                               | https://dashboard.composio.dev/ |
 | COMPOSIO_CACHE_DIR     | -                | The directory where the Composio CLI stores cache files            | ~/.composio                   |
 | COMPOSIO_LOG_LEVEL     | -                | The log level for the Composio CLI                                 | None                          |
 | DEBUG_OVERRIDE_VERSION | -                | The version to use when upgrading the Composio CLI (for debugging) | None                          |
