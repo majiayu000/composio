@@ -263,6 +263,21 @@ class TestCreateCustomTool:
         assert tool.output_schema is not None
         assert "properties" in tool.output_schema
 
+    def test_rejects_root_model(self):
+        from pydantic import RootModel
+
+        class ListInput(RootModel[list[int]]):
+            pass
+
+        with pytest.raises(ValidationError, match="RootModel"):
+            experimental_create_tool(
+                "BAD",
+                name="Bad",
+                description="Desc",
+                input_params=ListInput,
+                execute=lambda i, c: {},
+            )
+
     def test_input_schema_includes_defaults(self, grep_tool):
         # path has default="." - Pydantic won't include it in required
         assert "pattern" in grep_tool.input_schema.get("required", [])
@@ -648,8 +663,10 @@ class TestToolRouterSessionCustomTools:
             user_id="user-1",
         )
         result = session.execute("GREP", arguments={"pattern": "test"})
-        assert result["successful"] is True
+        # session.execute returns SessionExecuteResponse shape: data, error, log_id
         assert result["data"]["matches"] == ["test"]
+        assert result["error"] is None
+        assert result["log_id"] == ""
         # Should NOT have called the backend
         mock_session_deps["client"].tool_router.session.execute.assert_not_called()
 
@@ -665,7 +682,7 @@ class TestToolRouterSessionCustomTools:
             user_id="user-1",
         )
         result = session.execute("LOCAL_GREP", arguments={"pattern": "test"})
-        assert result["successful"] is True
+        assert result["error"] is None
 
     def test_execute_case_insensitive(self, mock_session_deps):
         session = ToolRouterSession(
@@ -679,7 +696,7 @@ class TestToolRouterSessionCustomTools:
             user_id="user-1",
         )
         result = session.execute("grep", arguments={"pattern": "test"})
-        assert result["successful"] is True
+        assert result["error"] is None
 
     def test_execute_routes_to_remote(self, mock_session_deps):
         mock_response = MagicMock()
@@ -944,3 +961,47 @@ class TestMultiExecuteRouting:
         assert len(results) == 2
         assert results[0]["response"]["data"]["tool"] == "A"
         assert results[1]["response"]["data"]["tool"] == "B"
+
+    def test_route_propagates_local_failure(self):
+        ok_tool = experimental_create_tool(
+            "OK",
+            name="OK",
+            description="D",
+            input_params=GrepInput,
+            execute=lambda i, c: {"ok": True},
+        )
+        bad_tool = experimental_create_tool(
+            "BAD",
+            name="Bad",
+            description="D",
+            input_params=GrepInput,
+            execute=lambda i, c: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        m = build_custom_tools_map([ok_tool, bad_tool])
+        session = ToolRouterSession(
+            client=MagicMock(),
+            provider=MagicMock(),
+            auto_upload_download_files=True,
+            session_id="sess-1",
+            mcp=MagicMock(),
+            experimental=MagicMock(),
+            custom_tools_map=m,
+            user_id="user-1",
+        )
+        result = session._route_multi_execute(
+            {
+                "tools": [
+                    {"tool_slug": "OK", "arguments": {"pattern": "x"}},
+                    {"tool_slug": "BAD", "arguments": {"pattern": "y"}},
+                ]
+            },
+            MagicMock(),
+            None,
+        )
+        # Overall result should report failure
+        assert result["successful"] is False
+        assert "1 out of 2" in result["error"]
+        # Individual results preserved
+        results = result["data"]["results"]
+        assert results[0]["response"]["successful"] is True
+        assert results[1]["response"]["successful"] is False

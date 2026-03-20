@@ -307,10 +307,26 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
             else:
                 merged.append(next(remote_iter, {}))
 
+        # Detect failures across local and remote results
+        failed_count = sum(
+            1
+            for entry in merged
+            if isinstance(entry, dict)
+            and isinstance(entry.get("response"), dict)
+            and not entry["response"].get("successful", True)
+        )
+        has_any_error = failed_count > 0 or (
+            remote_result is not None and not remote_result.get("successful", True)
+        )
+
         return {
             "data": {"results": merged},
-            "error": None,
-            "successful": True,
+            "error": (
+                f"{failed_count} out of {len(merged)} tools failed"
+                if has_any_error
+                else None
+            ),
+            "successful": not has_any_error,
         }
 
     def authorize(
@@ -453,9 +469,15 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
         # Check if this is a local tool (by original or final slug)
         entry = find_custom_tool(self._custom_tools_map, tool_slug)
         if entry and self._session_context:
-            return execute_custom_tool(
+            result = execute_custom_tool(
                 entry, arguments or {}, self._session_context
             )
+            # Normalize to match SessionExecuteResponse shape (data, error, log_id)
+            return {
+                "data": result["data"],
+                "error": result["error"],
+                "log_id": "",
+            }
 
         # Remote execution
         return self._client.tool_router.session.execute(

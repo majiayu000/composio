@@ -206,11 +206,26 @@ def experimental_create_tool(
         raise ValidationError(f"{context}: description is required")
 
     # Validate input_params is a Pydantic BaseModel subclass (not an instance)
+    # and produces an object-shaped JSON Schema (rejects RootModel[list[...]] etc.)
     if not isinstance(input_params, type) or not issubclass(input_params, BaseModel):
         raise ValidationError(
             f"{context}: input_params must be a Pydantic BaseModel subclass. "
             f"Tool input parameters are always an object with named properties."
         )
+
+    # Reject RootModel and other non-object schemas — tool router only passes
+    # named argument objects, so the schema must have named properties.
+    try:
+        from pydantic import RootModel
+
+        if issubclass(input_params, RootModel):
+            raise ValidationError(
+                f"{context}: input_params must be a regular BaseModel with named fields, "
+                f"not a RootModel. Tool input parameters are always an object with "
+                f"named properties."
+            )
+    except ImportError:
+        pass  # RootModel not available in older Pydantic
 
     # Validate execute is callable
     if not callable(execute):
@@ -442,15 +457,28 @@ def build_custom_tools_map_from_response(
     by_original_slug: t.Dict[str, CustomToolsMapEntry] = {}
 
     # Build lookup from original slug → handle + toolkit
+    # Detect duplicate original slugs across standalone tools and toolkit tools
     handles_by_original: t.Dict[
         str, t.Tuple[CustomTool, t.Optional[str]]
     ] = {}
     for handle in tools:
-        handles_by_original[handle.slug.upper()] = (handle, handle.extends_toolkit)
+        key = handle.slug.upper()
+        if key in handles_by_original:
+            raise ValidationError(
+                f'Duplicate custom tool slug "{handle.slug}" — '
+                f"each tool must have a unique slug across all custom tools and toolkits."
+            )
+        handles_by_original[key] = (handle, handle.extends_toolkit)
     if toolkits:
         for tk in toolkits:
             for handle in tk.tools:
-                handles_by_original[handle.slug.upper()] = (handle, tk.slug)
+                key = handle.slug.upper()
+                if key in handles_by_original:
+                    raise ValidationError(
+                        f'Duplicate custom tool slug "{handle.slug}" — '
+                        f"each tool must have a unique slug across all custom tools and toolkits."
+                    )
+                handles_by_original[key] = (handle, tk.slug)
 
     def add_entry(
         final_slug: str, original_slug: str, toolkit: t.Optional[str]
