@@ -130,7 +130,7 @@ async def run_test(composio, prompt, test_name):
     session = composio.create(
         user_id="default",
         toolkits=["gmail", "weathermap"],
-        manage_connections=False,
+        manage_connections=True,
         experimental={
             "custom_tools": [get_user, create_draft],
             "custom_toolkits": [role_manager],
@@ -197,13 +197,21 @@ async def main():
     )
     results.append(("Remote Composio tool", ok))
 
-    # Test 5: Mixed local + remote
+    # Test 5: Gmail proxy execute (CREATE_DRAFT via ctx.proxy_execute)
     ok = await run_test(
         composio,
-        "Look up user-1's info, then check the weather in their city (assume they're in San Francisco)",
-        "Mixed local + remote (GET_USER + weathermap)",
+        'Create a Gmail draft to bob@acme.com with subject "Hello from Python SDK" and body "Testing custom tools proxy_execute!"',
+        "Gmail proxy execute (CREATE_DRAFT)",
     )
-    results.append(("Mixed local + remote", ok))
+    results.append(("Gmail proxy (CREATE_DRAFT)", ok))
+
+    # Test 6: Mixed all paths — local + proxy + remote in one turn
+    ok = await run_test(
+        composio,
+        "Look up user-1, then draft them an email saying hi and include the current weather in San Francisco in the body",
+        "Mixed all paths (GET_USER + CREATE_DRAFT + weathermap)",
+    )
+    results.append(("Mixed all paths", ok))
 
     # Summary
     print(f"\n{'='*60}")
