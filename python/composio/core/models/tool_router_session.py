@@ -193,12 +193,15 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
                     from composio.core.models.tools import ToolExecutionResponse
 
                     type_after: t.Literal["after_execute"] = "after_execute"
-                    result = apply_modifier_by_type(
-                        modifiers=modifiers,
-                        toolkit="composio",
-                        tool=slug,
-                        type=type_after,
-                        response=t.cast(ToolExecutionResponse, result),
+                    result = t.cast(
+                        t.Dict[str, t.Any],
+                        apply_modifier_by_type(
+                            modifiers=modifiers,
+                            toolkit="composio",
+                            tool=slug,
+                            type=type_after,
+                            response=t.cast(ToolExecutionResponse, result),
+                        ),
                     )
 
                 return result
