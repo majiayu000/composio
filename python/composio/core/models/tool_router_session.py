@@ -319,8 +319,14 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
             remote_result is not None and not remote_result.get("successful", True)
         )
 
+        # Preserve any extra metadata from the remote batch response
+        merged_data: t.Dict[str, t.Any] = {}
+        if isinstance(remote_data, dict):
+            merged_data.update(remote_data)
+        merged_data["results"] = merged
+
         return {
-            "data": {"results": merged},
+            "data": merged_data,
             "error": (
                 f"{failed_count} out of {len(merged)} tools failed"
                 if has_any_error
@@ -479,12 +485,17 @@ class ToolRouterSession(t.Generic[TTool, TToolCollection]):
                 "log_id": "",
             }
 
-        # Remote execution
-        return self._client.tool_router.session.execute(
+        # Remote execution — normalize to dict for consistent return type
+        response = self._client.tool_router.session.execute(
             session_id=self.session_id,
             tool_slug=tool_slug,
             arguments=arguments if arguments is not None else omit,
         )
+        return {
+            "data": response.data if hasattr(response, "data") else {},
+            "error": response.error if hasattr(response, "error") else None,
+            "log_id": response.log_id if hasattr(response, "log_id") else "",
+        }
 
     def custom_tools(
         self, *, toolkit: t.Optional[str] = None

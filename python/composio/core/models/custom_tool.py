@@ -227,9 +227,18 @@ def experimental_create_tool(
     except ImportError:
         pass  # RootModel not available in older Pydantic
 
-    # Validate execute is callable
+    # Validate execute is callable and synchronous
     if not callable(execute):
         raise ValidationError(f"{context}: execute must be a callable")
+
+    import asyncio
+
+    if asyncio.iscoroutinefunction(execute):
+        raise ValidationError(
+            f"{context}: execute must be a synchronous function, not async. "
+            f"The Composio Python SDK is synchronous — use a regular "
+            f"'def execute(input, ctx)' instead of 'async def'."
+        )
 
     # Early length validation
     _validate_slug_length(slug, extends_toolkit, context)

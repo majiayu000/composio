@@ -272,6 +272,19 @@ class TestCreateCustomTool:
                 execute=lambda i, c: {},
             )
 
+    def test_rejects_async_execute(self):
+        async def async_execute(input, ctx):
+            return {"result": "ok"}
+
+        with pytest.raises(ValidationError, match="synchronous"):
+            experimental_create_tool(
+                "ASYNC",
+                name="Async",
+                description="Desc",
+                input_params=GrepInput,
+                execute=async_execute,
+            )
+
     def test_input_schema_includes_defaults(self, grep_tool):
         # path has default="." - Pydantic won't include it in required
         assert "pattern" in grep_tool.input_schema.get("required", [])
