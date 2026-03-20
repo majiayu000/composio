@@ -1,29 +1,47 @@
-"""Factory functions for creating custom tools and toolkits.
+"""Custom tools and toolkits for tool router sessions.
+
+Decorator API for defining custom tools that run in-process alongside
+remote Composio tools. Accessed via ``composio.experimental``.
 
 Usage::
 
-    from composio import experimental_create_tool, experimental_create_toolkit
     from pydantic import BaseModel, Field
+    from composio import Composio
+
+    composio = Composio()
 
     class GrepInput(BaseModel):
         pattern: str = Field(description="Pattern to search for")
 
-    grep = experimental_create_tool("GREP",
-        name="Grep Search",
-        description="Search for patterns in files",
-        input_params=GrepInput,
-        execute=lambda input, ctx: {"matches": []},
-    )
+    @composio.experimental.tool()
+    def grep(input: GrepInput, ctx):
+        \"\"\"Search for a pattern in local files.\"\"\"
+        return {"matches": []}
 
-    dev_tools = experimental_create_toolkit("DEV_TOOLS",
+    dev_tools = composio.experimental.Toolkit(
+        slug="DEV_TOOLS",
         name="Dev Tools",
         description="Local dev utilities",
-        tools=[grep],
+    )
+
+    @dev_tools.tool()
+    def search_code(input: GrepInput, ctx):
+        \"\"\"Search developer resources.\"\"\"
+        return {"results": []}
+
+    session = composio.create(
+        user_id="default",
+        experimental={
+            "custom_tools": [grep],
+            "custom_toolkits": [dev_tools],
+        },
     )
 """
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import typing as t
 
 from pydantic import BaseModel
@@ -120,18 +138,17 @@ def _get_input_json_schema(model: t.Type[BaseModel]) -> t.Dict[str, t.Any]:
         schema["properties"] = full_schema["properties"]
     if "required" in full_schema:
         schema["required"] = full_schema["required"]
-    # Inline $defs if present (Pydantic puts nested models there)
     if "$defs" in full_schema:
         schema["$defs"] = full_schema["$defs"]
     return schema
 
 
 # ────────────────────────────────────────────────────────────────
-# Factory functions
+# Internal tool creation (used by decorator API)
 # ────────────────────────────────────────────────────────────────
 
 
-def experimental_create_tool(
+def _create_tool(
     slug: str,
     *,
     name: str,
@@ -141,80 +158,22 @@ def experimental_create_tool(
     extends_toolkit: t.Optional[str] = None,
     output_params: t.Optional[t.Type[BaseModel]] = None,
 ) -> CustomTool:
-    """Create a custom tool for use in tool router sessions.
+    """Internal: create and validate a CustomTool."""
+    context = "experimental.tool"
 
-    The returned object is a lightweight reference containing the tool's metadata
-    and execute function. Pass it to
-    ``composio.create(user_id, experimental={"custom_tools": [...]})``
-    to bind it to a session.
-
-    Just return the result data from ``execute``, or raise an error.
-    The SDK wraps it into the standard response format internally.
-
-    :param slug: Unique tool identifier (alphanumeric, underscores, hyphens;
-                 no LOCAL_ or COMPOSIO_ prefix)
-    :param name: Human-readable display name
-    :param description: Tool description (used for BM25 search matching)
-    :param input_params: Pydantic BaseModel class for input parameters
-    :param execute: Function ``(input, ctx) -> dict`` that executes the tool
-    :param extends_toolkit: Composio toolkit slug to inherit auth from (e.g. 'gmail')
-    :param output_params: Optional Pydantic BaseModel class for output documentation
-    :returns: A CustomTool to pass to session creation
-
-    Example — standalone tool (no auth)::
-
-        class GrepInput(BaseModel):
-            pattern: str = Field(description="Pattern to search for")
-            path: str = Field(description="File path")
-
-        grep = experimental_create_tool("GREP",
-            name="Grep Search",
-            description="Search for patterns in files",
-            input_params=GrepInput,
-            execute=lambda input, ctx: {"matches": []},
-        )
-
-    Example — tool extending a Composio toolkit (inherits auth)::
-
-        class DraftInput(BaseModel):
-            to: str = Field(description="Recipient email")
-            subject: str = Field(description="Subject")
-            body: str = Field(description="Body")
-
-        create_draft = experimental_create_tool("CREATE_DRAFT",
-            name="Create Gmail draft",
-            description="Create a real Gmail draft via the Gmail API",
-            extends_toolkit="gmail",
-            input_params=DraftInput,
-            execute=lambda input, ctx: ctx.proxy_execute(
-                toolkit="gmail",
-                endpoint="https://gmail.googleapis.com/gmail/v1/users/me/drafts",
-                method="POST",
-                body={"message": {"raw": "..."}},
-            ),
-        )
-    """
-    context = "experimental_create_tool"
-
-    # Validate slug
     _validate_slug(slug, context)
 
-    # Validate required fields
     if not name:
         raise ValidationError(f"{context}: name is required")
     if not description:
         raise ValidationError(f"{context}: description is required")
 
-    # Validate input_params is a Pydantic BaseModel subclass (not an instance)
-    # and produces an object-shaped JSON Schema (rejects RootModel[list[...]] etc.)
     if not isinstance(input_params, type) or not issubclass(input_params, BaseModel):
         raise ValidationError(
             f"{context}: input_params must be a Pydantic BaseModel subclass. "
             f"Tool input parameters are always an object with named properties."
         )
 
-    # Reject RootModel and other non-object schemas — tool router only passes
-    # named argument objects, so the schema must have named properties.
     try:
         from pydantic import RootModel
 
@@ -225,28 +184,22 @@ def experimental_create_tool(
                 f"named properties."
             )
     except ImportError:
-        pass  # RootModel not available in older Pydantic
+        pass
 
-    # Validate execute is callable and synchronous
     if not callable(execute):
         raise ValidationError(f"{context}: execute must be a callable")
-
-    import asyncio
 
     if asyncio.iscoroutinefunction(execute):
         raise ValidationError(
             f"{context}: execute must be a synchronous function, not async. "
             f"The Composio Python SDK is synchronous — use a regular "
-            f"'def execute(input, ctx)' instead of 'async def'."
+            f"'def fn(input, ctx)' instead of 'async def'."
         )
 
-    # Early length validation
     _validate_slug_length(slug, extends_toolkit, context)
 
-    # Convert Pydantic model → JSON Schema
     input_schema = _get_input_json_schema(input_params)
 
-    # Convert output schema if provided
     output_schema: t.Optional[t.Dict[str, t.Any]] = None
     if output_params is not None:
         if not isinstance(output_params, type) or not issubclass(
@@ -269,65 +222,248 @@ def experimental_create_tool(
     )
 
 
-def experimental_create_toolkit(
-    slug: str,
+def _infer_tool_from_function(
+    fn: t.Callable[..., t.Any],
     *,
-    name: str,
-    description: str,
-    tools: t.List[CustomTool],
-) -> CustomToolkit:
-    """Create a custom toolkit that groups related tools.
+    slug: t.Optional[str] = None,
+    name: t.Optional[str] = None,
+    description: t.Optional[str] = None,
+    extends_toolkit: t.Optional[str] = None,
+    output_params: t.Optional[t.Type[BaseModel]] = None,
+) -> CustomTool:
+    """Create a CustomTool by inferring metadata from a decorated function.
 
-    Tools passed here must NOT have ``extends_toolkit`` set — they inherit the
-    toolkit identity instead.
+    - slug: from ``fn.__name__.upper()``
+    - name: from ``fn.__name__`` humanized
+    - description: from ``fn.__doc__``
+    - input_params: from the first parameter with a BaseModel type annotation
+    """
+    # Infer slug
+    actual_slug = slug or fn.__name__.upper()
+    actual_name = name or fn.__name__.replace("_", " ").title()
+    actual_description = description or (fn.__doc__ or "").strip()
 
-    :param slug: Unique toolkit identifier (alphanumeric, underscores, hyphens;
-                 no LOCAL_ or COMPOSIO_ prefix)
-    :param name: Human-readable display name
-    :param description: Toolkit description
-    :param tools: List of CustomTool objects to include in this toolkit
-    :returns: A CustomToolkit to pass to session creation
+    if not actual_description:
+        raise ValidationError(
+            f"experimental.tool: description is required. "
+            f'Add a docstring to "{fn.__name__}" or pass description=...'
+        )
+
+    # Infer input_params from type annotation
+    sig = inspect.signature(fn)
+    params = list(sig.parameters.values())
+    input_params: t.Optional[t.Type[BaseModel]] = None
+    for p in params:
+        if p.annotation is not inspect.Parameter.empty:
+            ann = p.annotation
+            if isinstance(ann, type) and issubclass(ann, BaseModel):
+                input_params = ann
+                break
+
+    if input_params is None:
+        raise ValidationError(
+            f'experimental.tool: could not infer input parameters for "{fn.__name__}". '
+            f"Annotate a parameter with a Pydantic BaseModel subclass, e.g. "
+            f"def {fn.__name__}(input: MyInput, ctx): ..."
+        )
+
+    # Wrap function to match CustomToolExecuteFn: (input, ctx) -> dict
+    # Support both (input) and (input, ctx) signatures
+    num_params = len(params)
+    if num_params <= 1:
+
+        def execute(input: t.Any, ctx: t.Any) -> t.Dict[str, t.Any]:
+            return fn(input)
+    else:
+        execute = fn
+
+    return _create_tool(
+        slug=actual_slug,
+        name=actual_name,
+        description=actual_description,
+        input_params=input_params,
+        execute=execute,
+        extends_toolkit=extends_toolkit,
+        output_params=output_params,
+    )
+
+
+# ────────────────────────────────────────────────────────────────
+# ExperimentalToolkit — custom toolkit with .tool() decorator
+# ────────────────────────────────────────────────────────────────
+
+
+class ExperimentalToolkit:
+    """Custom toolkit that groups related tools under one namespace.
+
+    Use ``@toolkit.tool()`` to add tools. Pass the toolkit to
+    ``composio.create(experimental={"custom_toolkits": [toolkit]})``.
+
+    Tools added to a toolkit must NOT use ``extends_toolkit`` — they
+    inherit the toolkit identity instead.
 
     Example::
 
-        dev_tools = experimental_create_toolkit("DEV_TOOLS",
+        dev_tools = composio.experimental.Toolkit(
+            slug="DEV_TOOLS",
             name="Dev Tools",
             description="Local dev utilities",
-            tools=[grep_tool, sed_tool],
         )
+
+        @dev_tools.tool()
+        def search_code(input: SearchInput, ctx):
+            \"\"\"Search developer resources.\"\"\"
+            return {"results": []}
     """
-    context = "experimental_create_toolkit"
 
-    # Validate slug
-    _validate_slug(slug, context)
+    def __init__(self, *, slug: str, name: str, description: str) -> None:
+        context = "experimental.Toolkit"
+        _validate_slug(slug, context)
+        if not name:
+            raise ValidationError(f"{context}: name is required")
+        if not description:
+            raise ValidationError(f"{context}: description is required")
 
-    # Validate required fields
-    if not name:
-        raise ValidationError(f"{context}: name is required")
-    if not description:
-        raise ValidationError(f"{context}: description is required")
+        self.slug = slug
+        self.name = name
+        self.description = description
+        self._tools: t.List[CustomTool] = []
 
-    # Non-empty tools required
-    if not tools:
-        raise ValidationError(f"{context}: at least one tool is required")
+    @property
+    def tools(self) -> t.Tuple[CustomTool, ...]:
+        return tuple(self._tools)
 
-    # Validate each tool
-    for tool in tools:
-        if tool.extends_toolkit:
-            raise ValidationError(
-                f'{context}: tool "{tool.slug}" has extends_toolkit set. '
-                f"Tools in a custom toolkit must not use extends_toolkit — "
-                f"they inherit the toolkit identity instead."
+    @t.overload
+    def tool(self, fn: t.Callable[..., t.Any], /) -> CustomTool: ...
+
+    @t.overload
+    def tool(
+        self,
+        *,
+        slug: t.Optional[str] = None,
+        name: t.Optional[str] = None,
+        description: t.Optional[str] = None,
+        output_params: t.Optional[t.Type[BaseModel]] = None,
+    ) -> t.Callable[[t.Callable[..., t.Any]], CustomTool]: ...
+
+    def tool(
+        self,
+        fn: t.Optional[t.Callable[..., t.Any]] = None,
+        *,
+        slug: t.Optional[str] = None,
+        name: t.Optional[str] = None,
+        description: t.Optional[str] = None,
+        output_params: t.Optional[t.Type[BaseModel]] = None,
+    ) -> t.Union[CustomTool, t.Callable[[t.Callable[..., t.Any]], CustomTool]]:
+        """Decorator to add a tool to this toolkit.
+
+        Infers slug, name, description, and input_params from the function
+        if not explicitly provided.
+        """
+
+        def decorator(f: t.Callable[..., t.Any]) -> CustomTool:
+            custom_tool = _infer_tool_from_function(
+                f,
+                slug=slug,
+                name=name,
+                description=description,
+                output_params=output_params,
+                # No extends_toolkit for toolkit tools
             )
-        # Early length validation with toolkit slug
-        _validate_slug_length(tool.slug, slug, f'{context}("{slug}")')
+            if custom_tool.extends_toolkit:
+                raise ValidationError(
+                    f'experimental.Toolkit.tool: tool "{custom_tool.slug}" has '
+                    f"extends_toolkit set. Tools in a custom toolkit must not "
+                    f"use extends_toolkit — they inherit the toolkit identity."
+                )
+            _validate_slug_length(
+                custom_tool.slug, self.slug, f'experimental.Toolkit("{self.slug}").tool'
+            )
+            self._tools.append(custom_tool)
+            return custom_tool
 
-    return CustomToolkit(
-        slug=slug,
-        name=name,
-        description=description,
-        tools=tuple(tools),
-    )
+        if fn is not None:
+            return decorator(fn)
+        return decorator
+
+
+# ────────────────────────────────────────────────────────────────
+# ExperimentalAPI — the composio.experimental namespace
+# ────────────────────────────────────────────────────────────────
+
+
+class ExperimentalAPI:
+    """Experimental APIs accessed via ``composio.experimental``.
+
+    Provides decorators for creating custom tools and toolkits
+    that run in-process alongside remote Composio tools.
+    """
+
+    Toolkit = ExperimentalToolkit
+
+    @t.overload
+    def tool(self, fn: t.Callable[..., t.Any], /) -> CustomTool: ...
+
+    @t.overload
+    def tool(
+        self,
+        *,
+        slug: t.Optional[str] = None,
+        name: t.Optional[str] = None,
+        description: t.Optional[str] = None,
+        extends_toolkit: t.Optional[str] = None,
+        output_params: t.Optional[t.Type[BaseModel]] = None,
+    ) -> t.Callable[[t.Callable[..., t.Any]], CustomTool]: ...
+
+    def tool(
+        self,
+        fn: t.Optional[t.Callable[..., t.Any]] = None,
+        *,
+        slug: t.Optional[str] = None,
+        name: t.Optional[str] = None,
+        description: t.Optional[str] = None,
+        extends_toolkit: t.Optional[str] = None,
+        output_params: t.Optional[t.Type[BaseModel]] = None,
+    ) -> t.Union[CustomTool, t.Callable[[t.Callable[..., t.Any]], CustomTool]]:
+        """Decorator to create a custom tool from a function.
+
+        Infers slug, name, description, and input_params from the function.
+        Override any with explicit keyword arguments.
+
+        Examples::
+
+            # Bare decorator — no parens
+            @composio.experimental.tool
+            def grep(input: GrepInput, ctx):
+                \"\"\"Search for a pattern.\"\"\"
+                return {"matches": []}
+
+            # With parens — no args
+            @composio.experimental.tool()
+            def grep(input: GrepInput, ctx):
+                \"\"\"Search for a pattern.\"\"\"
+                return {"matches": []}
+
+            # With extends_toolkit — inherits auth
+            @composio.experimental.tool(extends_toolkit="gmail")
+            def create_draft(input: DraftInput, ctx):
+                \"\"\"Create a Gmail draft.\"\"\"
+                return ctx.proxy_execute(toolkit="gmail", ...)
+        """
+
+        def decorator(f: t.Callable[..., t.Any]) -> CustomTool:
+            return _infer_tool_from_function(
+                f,
+                slug=slug,
+                name=name,
+                description=description,
+                extends_toolkit=extends_toolkit,
+                output_params=output_params,
+            )
+
+        if fn is not None:
+            return decorator(fn)
+        return decorator
 
 
 # ────────────────────────────────────────────────────────────────
@@ -354,7 +490,7 @@ def serialize_custom_tools(tools: t.List[CustomTool]) -> t.List[t.Dict[str, t.An
 
 
 def serialize_custom_toolkits(
-    toolkits: t.List[CustomToolkit],
+    toolkits: t.Sequence[t.Union[CustomToolkit, ExperimentalToolkit]],
 ) -> t.List[t.Dict[str, t.Any]]:
     """Serialize custom toolkits into the format expected by the backend."""
     result = []
@@ -388,12 +524,9 @@ def serialize_custom_toolkits(
 
 def build_custom_tools_map(
     tools: t.List[CustomTool],
-    toolkits: t.Optional[t.List[CustomToolkit]] = None,
+    toolkits: t.Optional[t.List[t.Union[CustomToolkit, ExperimentalToolkit]]] = None,
 ) -> CustomToolsMap:
-    """Build a CustomToolsMap from custom tools and toolkits.
-
-    Used internally by ToolRouter.create() to construct the per-session routing map.
-    """
+    """Build a CustomToolsMap from custom tools and toolkits."""
     by_final_slug: t.Dict[str, CustomToolsMapEntry] = {}
     by_original_slug: t.Dict[str, CustomToolsMapEntry] = {}
 
@@ -445,24 +578,20 @@ def build_custom_tools_map(
     return CustomToolsMap(
         by_final_slug=by_final_slug,
         by_original_slug=by_original_slug,
-        toolkits=list(toolkits) if toolkits else None,
+        toolkits=list(toolkits) if toolkits else None,  # type: ignore[arg-type]
     )
 
 
 def build_custom_tools_map_from_response(
     tools: t.List[CustomTool],
-    toolkits: t.Optional[t.List[CustomToolkit]],
+    toolkits: t.Optional[t.List[t.Union[CustomToolkit, ExperimentalToolkit]]],
     experimental: t.Optional[SessionCreateResponseExperimental],
 ) -> CustomToolsMap:
-    """Build a CustomToolsMap using the slug/original_slug mapping from the backend response.
-
-    Uses the backend's authoritative prefixed slugs instead of computing them client-side.
-    """
+    """Build a CustomToolsMap using the slug/original_slug mapping from the backend response."""
     by_final_slug: t.Dict[str, CustomToolsMapEntry] = {}
     by_original_slug: t.Dict[str, CustomToolsMapEntry] = {}
 
-    # Build lookup from original slug → handle + toolkit
-    # Detect duplicate original slugs across standalone tools and toolkit tools
+    # Build lookup from original slug -> handle + toolkit
     handles_by_original: t.Dict[str, t.Tuple[CustomTool, t.Optional[str]]] = {}
     for handle in tools:
         key = handle.slug.upper()
@@ -488,22 +617,19 @@ def build_custom_tools_map_from_response(
     ) -> None:
         match = handles_by_original.get(original_slug.upper())
         if not match:
-            return  # Response tool not found in our handles
+            return
         handle, default_toolkit = match
         resolved_toolkit = toolkit if toolkit is not None else default_toolkit
         entry = CustomToolsMapEntry(
             handle=handle, final_slug=final_slug, toolkit=resolved_toolkit
         )
-        # Store with uppercased keys to match find_custom_tool's .upper() lookup
         by_final_slug[final_slug.upper()] = entry
         by_original_slug[original_slug.upper()] = entry
 
-    # Map standalone custom tools from response
     if experimental and experimental.custom_tools:
         for ct in experimental.custom_tools:
             add_entry(ct.slug, ct.original_slug, ct.extends_toolkit)
 
-    # Map toolkit custom tools from response
     if experimental and experimental.custom_toolkits:
         for ctk in experimental.custom_toolkits:
             for ctk_tool in ctk.tools:
@@ -512,5 +638,5 @@ def build_custom_tools_map_from_response(
     return CustomToolsMap(
         by_final_slug=by_final_slug,
         by_original_slug=by_original_slug,
-        toolkits=list(toolkits) if toolkits else None,
+        toolkits=list(toolkits) if toolkits else None,  # type: ignore[arg-type]
     )

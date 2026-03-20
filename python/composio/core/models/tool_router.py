@@ -18,6 +18,7 @@ from composio_client.types.tool_router import session_create_params
 from composio.client import HttpClient
 from composio.core.models.base import Resource
 from composio.core.models.custom_tool import (
+    ExperimentalToolkit,
     build_custom_tools_map_from_response,
     serialize_custom_tools,
     serialize_custom_toolkits,
@@ -188,7 +189,7 @@ class ToolRouterExperimentalConfig(te.TypedDict, total=False):
 
     assistive_prompt: ToolRouterAssistivePromptConfig
     custom_tools: t.List["CustomTool"]
-    custom_toolkits: t.List["CustomToolkit"]
+    custom_toolkits: t.List[t.Union["CustomToolkit", "ExperimentalToolkit"]]
 
 
 @dataclass

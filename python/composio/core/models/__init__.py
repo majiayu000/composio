@@ -1,6 +1,6 @@
 from .auth_configs import AuthConfigs
 from .connected_accounts import ConnectedAccounts
-from .custom_tool import experimental_create_tool, experimental_create_toolkit
+from .custom_tool import ExperimentalAPI, ExperimentalToolkit
 from .custom_tool_types import (
     CustomTool,
     CustomToolkit,
@@ -35,6 +35,8 @@ __all__ = [
     "ConnectionStatusEnum",
     "CustomTool",
     "CustomToolkit",
+    "ExperimentalAPI",
+    "ExperimentalToolkit",
     "MCP",
     "ProxyExecuteResponse",
     "RegisteredCustomTool",
@@ -51,7 +53,5 @@ __all__ = [
     "WebhookConnectionMetadata",
     "WebhookEvent",
     "WebhookEventType",
-    "experimental_create_tool",
-    "experimental_create_toolkit",
     "is_connection_expired_event",
 ]
