@@ -45,6 +45,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
     })
   )('[Given] -d inline JSON [Then] executes via Tool Router with defaults', it => {
@@ -75,19 +76,13 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
     })
   )('[Given] composio execute alias [Then] works like composio manage tools execute', it => {
-    it.scoped('alias expands to tools execute', () =>
+    it.scoped('root execute works for consumer flow without developer-only flags', () =>
       Effect.gen(function* () {
-        yield* cli([
-          'execute',
-          'GMAIL_SEND_EMAIL',
-          '--user-id',
-          'default',
-          '-d',
-          '{"recipient":"a"}',
-        ]);
+        yield* cli(['execute', 'GMAIL_SEND_EMAIL', '-d', '{"recipient":"a"}']);
         const lines = yield* MockConsole.getLines({ stripAnsi: true });
         const output = parseLastJson(lines);
 
@@ -107,7 +102,7 @@ describe('CLI: composio manage tools execute', () => {
   )(
     '[Given] no --user-id and no project test_user_id [Then] falls back to global test_user_id',
     it => {
-      it.scoped('uses global test user id from user_data.json', () =>
+      it.scoped('executes without printing global test user diagnostics', () =>
         Effect.gen(function* () {
           yield* cli(['manage', 'tools', 'execute', 'GMAIL_SEND_EMAIL', '-d', '{"recipient":"a"}']);
           const lines = yield* MockConsole.getLines({ stripAnsi: true });
@@ -116,7 +111,7 @@ describe('CLI: composio manage tools execute', () => {
 
           expect(output.successful).toBe(true);
           expect(output.data.tool_slug).toBe('GMAIL_SEND_EMAIL');
-          expect(text).toContain('Using global test user id "global-default"');
+          expect(text).not.toContain('Using global test user id');
         })
       );
     }
@@ -198,24 +193,15 @@ describe('CLI: composio manage tools execute', () => {
       stdin: { isTTY: true, data: '' },
     })
   )('[Given] execute-help with options before slug [Then] resolves correct slug', it => {
-    it.scoped('does not treat --user-id value as slug', () =>
+    it.scoped('resolves root execute help slug correctly', () =>
       Effect.gen(function* () {
-        yield* cli([
-          'manage',
-          'tools',
-          'execute',
-          '--user-id',
-          'default',
-          'GMAIL_SEND_EMAIL',
-          '--help',
-        ]);
+        yield* cli(['execute', 'GMAIL_SEND_EMAIL', '--help']);
         const lines = yield* MockConsole.getLines({ stripAnsi: true });
         const output = lines.join('\n');
 
         expect(output).toContain('Slug: GMAIL_SEND_EMAIL');
         expect(output).toContain('Data Parameters:');
         expect(output).toContain('recipient');
-        expect(output).not.toContain('default');
       })
     );
   });
@@ -223,6 +209,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: false, data: '{"owner":"composio"}' },
     })
   )('[Given] stdin is piped [Then] reads input from stdin', it => {
@@ -242,6 +229,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolsExecutor: {
         failWith: new ActionExecuteConnectedAccountNotFoundError({
@@ -268,7 +256,9 @@ describe('CLI: composio manage tools execute', () => {
 
         expect(output).toContain('No connected account found');
         expect(output).toContain('Tips');
-        expect(output).toContain('composio manage connected-accounts link');
+        expect(output).toContain(
+          'composio manage connected-accounts link gmail --user-id "<user-id>"'
+        );
       })
     );
   });
@@ -278,6 +268,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolRouter: {
         execute: async () => {
@@ -311,7 +302,9 @@ describe('CLI: composio manage tools execute', () => {
 
         expect(output).toContain('No active connection');
         expect(output).toContain('Tips');
-        expect(output).toContain('composio manage connected-accounts link gmail');
+        expect(output).toContain(
+          'composio manage connected-accounts link gmail --user-id "<user-id>"'
+        );
       })
     );
   });
@@ -319,6 +312,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolRouter: {
         execute: async (_sessionId, params) => ({
@@ -355,6 +349,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolsExecutor: {
         failWith: {
@@ -388,6 +383,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolsExecutor: {
         failWith: { error: { message: 'API error: invalid input' } },
@@ -420,6 +416,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolsExecutor: {
         respondWith: {
@@ -460,6 +457,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolsExecutor: {
         respondWith: {
@@ -501,6 +499,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolsExecutor: {
         failWith: new ActionExecuteConnectedAccountNotFoundError({
@@ -618,6 +617,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolsExecutor: {
         respondWith: {
@@ -671,6 +671,7 @@ describe('CLI: composio manage tools execute', () => {
   layer(
     TestLive({
       baseConfigProvider: testConfigProvider,
+      fixture: 'global-test-user-id',
       stdin: { isTTY: true, data: '' },
       toolsExecutor: {
         respondWith: {

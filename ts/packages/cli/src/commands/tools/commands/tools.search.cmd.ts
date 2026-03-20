@@ -7,8 +7,12 @@ import { resolveToolRouterSession } from 'src/effects/create-tool-router-session
 import { buildMinimalPayloadFromSchema } from 'src/ui/build-minimal-payload';
 import { formatToolsTable } from '../format';
 import type { Tool } from 'src/models/tools';
-import { ProjectContext } from 'src/services/project-context';
 import { ComposioUserContext } from 'src/services/user-context';
+import { ComposioClientSingleton } from 'src/services/composio-clients';
+import {
+  resolveCommandProject,
+  formatResolveCommandProjectError,
+} from 'src/services/command-project';
 
 const query = Args.text({ name: 'query' }).pipe(
   Args.withDescription(
@@ -23,7 +27,12 @@ const toolkits = Options.text('toolkits').pipe(
 
 const userId = Options.text('user-id').pipe(
   Options.optional,
-  Options.withDescription('User ID for the session (falls back to project/global test_user_id)')
+  Options.withDescription('Developer-project user ID override')
+);
+
+const projectName = Options.text('project-name').pipe(
+  Options.optional,
+  Options.withDescription('Developer project name override for this command')
 );
 
 const limit = Options.integer('limit').pipe(
@@ -31,181 +40,209 @@ const limit = Options.integer('limit').pipe(
   Options.withDescription('Number of results per page (1-1000)')
 );
 
-/**
- * Search tools semantically by use case.
- *
- * The query is interpreted semantically (not exact keyword matching), so you can
- * describe an outcome or workflow. The command returns the most relevant tools
- * for that use case and includes recommended guidance/plan steps to help execute it.
- *
- * @example
- * ```bash
- * composio manage tools search "send emails"
- * composio manage tools search "send emails" --toolkits "gmail,outlook"
- * composio manage tools search "messaging" --limit 5
- * ```
- */
-export const toolsCmd$Search = Command.make(
-  'search',
-  { query, toolkits, userId, limit },
-  ({ query, toolkits, userId, limit }) =>
-    Effect.gen(function* () {
-      if (!(yield* requireAuth)) return;
+const runToolsSearch = (params: {
+  query: string;
+  toolkits: Option.Option<string>;
+  userId: Option.Option<string>;
+  projectName: Option.Option<string>;
+  limit: number;
+  rootOnly: boolean;
+}) =>
+  Effect.gen(function* () {
+    if (!(yield* requireAuth)) return;
 
-      const ui = yield* TerminalUI;
-      const projectContext = yield* ProjectContext;
-      const userContext = yield* ComposioUserContext;
-      const resolvedProjectContext = yield* projectContext.resolve.pipe(
-        Effect.catchAll(() => Effect.succeed(Option.none()))
-      );
-      const testUserId = Option.flatMap(resolvedProjectContext, keys => keys.testUserId);
-      const globalTestUserId = userContext.data.testUserId;
-      const resolvedUserId = Option.match(userId, {
-        onSome: value => Option.some(value),
-        onNone: () => Option.orElse(testUserId, () => globalTestUserId),
-      });
+    const ui = yield* TerminalUI;
+    const userContext = yield* ComposioUserContext;
 
-      if (Option.isNone(resolvedUserId)) {
-        return yield* Effect.fail(
-          new Error(
-            'Missing user id. Provide --user-id or run composio init to set test_user_id, or composio login to set global test_user_id.'
-          )
-        );
-      }
+    const clampedLimit = clampLimit(params.limit);
+    const toolkitFilter = Option.getOrUndefined(params.toolkits);
+    const toolkitList =
+      toolkitFilter && toolkitFilter.trim().length > 0
+        ? toolkitFilter
+            .split(',')
+            .map(s => s.trim().toLowerCase())
+            .filter(Boolean)
+        : undefined;
 
-      if (Option.isNone(userId) && Option.isSome(testUserId)) {
-        yield* ui.log.warn(`Using test user id "${testUserId.value}"`);
-      } else if (Option.isNone(userId) && Option.isSome(globalTestUserId)) {
-        yield* ui.log.warn(`Using global test user id "${globalTestUserId.value}"`);
-      }
-
-      const clampedLimit = clampLimit(limit);
-      const toolkitFilter = Option.getOrUndefined(toolkits);
-      const toolkitList =
-        toolkitFilter && toolkitFilter.trim().length > 0
-          ? toolkitFilter
-              .split(',')
-              .map(s => s.trim().toLowerCase())
-              .filter(Boolean)
-          : undefined;
-
-      const searchResponse = yield* ui.withSpinner(
-        `Searching tools for "${query}"...`,
-        Effect.gen(function* () {
-          const { client, sessionId } = yield* resolveToolRouterSession(resolvedUserId.value, {
-            toolkits: toolkitList,
-          });
-          return yield* Effect.tryPromise(() =>
-            client.toolRouter.session.search(sessionId, {
-              queries: [{ use_case: query }],
-            })
+    const searchResponse = yield* ui.withSpinner(
+      `Searching tools for "${params.query}"...`,
+      Effect.gen(function* () {
+        const resolvedProject = yield* resolveCommandProject({
+          mode: 'consumer',
+          projectName: params.rootOnly ? undefined : Option.getOrUndefined(params.projectName),
+        }).pipe(Effect.mapError(formatResolveCommandProjectError));
+        const resolvedUserId =
+          resolvedProject.projectType === 'CONSUMER'
+            ? Option.fromNullable(resolvedProject.consumerUserId)
+            : Option.match(params.userId, {
+                onSome: value => Option.some(value),
+                onNone: () => userContext.data.testUserId,
+              });
+        if (Option.isNone(resolvedUserId)) {
+          return yield* Effect.fail(
+            new Error(
+              'Missing user id. Provide --user-id or run composio login to set global test_user_id.'
+            )
           );
-        })
-      );
+        }
+        const clientSingleton = yield* ComposioClientSingleton;
+        const client = yield* clientSingleton.getFor({
+          orgId: resolvedProject.orgId,
+          projectId: resolvedProject.projectId,
+        });
+        const { sessionId } = yield* resolveToolRouterSession(client, resolvedUserId.value, {
+          toolkits: toolkitList,
+        });
+        return yield* Effect.tryPromise(() =>
+          client.toolRouter.session.search(sessionId, {
+            queries: [{ use_case: params.query }],
+          })
+        );
+      })
+    );
 
-      const toolkitSet = toolkitList && toolkitList.length > 0 ? new Set(toolkitList) : undefined;
+    const toolkitSet = toolkitList && toolkitList.length > 0 ? new Set(toolkitList) : undefined;
 
-      const mergedSlugs: string[] = [];
-      const seen = new Set<string>();
-      for (const item of searchResponse.results) {
-        for (const slug of [...item.primary_tool_slugs, ...item.related_tool_slugs]) {
-          if (!seen.has(slug)) {
-            seen.add(slug);
-            mergedSlugs.push(slug);
-          }
+    const mergedSlugs: string[] = [];
+    const seen = new Set<string>();
+    for (const item of searchResponse.results) {
+      for (const slug of [...item.primary_tool_slugs, ...item.related_tool_slugs]) {
+        if (!seen.has(slug)) {
+          seen.add(slug);
+          mergedSlugs.push(slug);
         }
       }
+    }
 
-      const toolsList: Tool[] = [];
-      for (const slug of mergedSlugs) {
-        const schema = searchResponse.tool_schemas[slug];
-        if (!schema) continue;
-        if (toolkitSet && !toolkitSet.has(schema.toolkit.toLowerCase())) continue;
+    const toolsList: Tool[] = [];
+    for (const slug of mergedSlugs) {
+      const schema = searchResponse.tool_schemas[slug];
+      if (!schema) continue;
+      if (toolkitSet && !toolkitSet.has(schema.toolkit.toLowerCase())) continue;
 
-        toolsList.push({
-          slug: schema.tool_slug,
-          name: schema.tool_slug,
-          description: schema.description ?? '',
-          tags: [],
-          available_versions: [],
-          input_parameters: (schema.input_schema ?? {}) as Record<string, unknown>,
-          output_parameters: (schema.output_schema ?? {}) as Record<string, unknown>,
-        } as Tool);
+      toolsList.push({
+        slug: schema.tool_slug,
+        name: schema.tool_slug,
+        description: schema.description ?? '',
+        tags: [],
+        available_versions: [],
+        input_parameters: (schema.input_schema ?? {}) as Record<string, unknown>,
+        output_parameters: (schema.output_schema ?? {}) as Record<string, unknown>,
+      } as Tool);
 
-        if (toolsList.length >= clampedLimit) break;
-      }
+      if (toolsList.length >= clampedLimit) break;
+    }
 
-      if (toolsList.length === 0) {
-        yield* ui.log.warn(`No tools found matching "${query}". Try broadening your search.`);
-        return;
-      }
+    if (toolsList.length === 0) {
+      yield* ui.log.warn(`No tools found matching "${params.query}". Try broadening your search.`);
+      return;
+    }
 
-      const showing = toolsList.length;
-      yield* ui.log.info(`Found ${showing} tools\n\n${formatToolsTable(toolsList)}`);
+    const showing = toolsList.length;
+    yield* ui.log.info(`Found ${showing} tools\n\n${formatToolsTable(toolsList)}`);
 
-      const planSteps = Array.from(
-        new Set(searchResponse.results.flatMap(result => result.recommended_plan_steps ?? []))
+    const planSteps = Array.from(
+      new Set(searchResponse.results.flatMap(result => result.recommended_plan_steps ?? []))
+    );
+    if (planSteps.length > 0) {
+      yield* ui.log.info(`Plan:\n${planSteps.map((step, i) => `${i + 1}. ${step}`).join('\n')}`);
+    } else if (searchResponse.next_steps_guidance.length > 0) {
+      yield* ui.log.info(
+        `Plan:\n${searchResponse.next_steps_guidance
+          .map((step, i) => `${i + 1}. ${step}`)
+          .join('\n')}`
       );
-      if (planSteps.length > 0) {
-        yield* ui.log.info(`Plan:\n${planSteps.map((step, i) => `${i + 1}. ${step}`).join('\n')}`);
-      } else if (searchResponse.next_steps_guidance.length > 0) {
-        yield* ui.log.info(
-          `Plan:\n${searchResponse.next_steps_guidance
-            .map((step, i) => `${i + 1}. ${step}`)
-            .join('\n')}`
-        );
-      }
+    }
 
-      // Next step hint
-      const firstSlug = toolsList[0]?.slug;
-      if (firstSlug) {
-        yield* ui.log.step(
-          [
-            'Hints:',
-            `> composio manage tools info "${firstSlug}"`,
-            `> composio manage tools execute "${firstSlug}" --user-id "<user-id>" --arguments '{}'`,
-          ].join('\n')
-        );
-      }
+    const firstSlug = toolsList[0]?.slug;
+    const firstSchema =
+      firstSlug && searchResponse.tool_schemas[firstSlug]
+        ? searchResponse.tool_schemas[firstSlug]
+        : undefined;
+    const firstToolkit = firstSchema?.toolkit;
+    const firstPayload = buildMinimalPayloadFromSchema(
+      (firstSchema?.input_schema ?? {}) as Record<string, unknown>
+    );
+    const firstPayloadJson = JSON.stringify(firstPayload);
+    const firstDataArg =
+      Object.keys(firstPayload).length === 0 ? '-d "{}"' : `-d '${firstPayloadJson}'`;
 
-      if (searchResponse.error) {
-        yield* ui.log.warn(searchResponse.error);
-      }
+    if (firstSlug) {
+      const executeHint = params.rootOnly
+        ? `> composio execute "${firstSlug}" ${firstDataArg}`
+        : `> composio manage tools execute "${firstSlug}" --user-id "<user-id>" ${firstDataArg}`;
+      const linkHint = params.rootOnly
+        ? `> composio link <toolkit>`
+        : `> composio manage connected-accounts link <toolkit> --user-id "<user-id>"`;
+      yield* ui.log.step(['Hints:', executeHint, linkHint].join('\n'));
+    }
 
-      // For machine-readable output (e.g. piping to jq), expose the full API payload with CTA.
-      const firstSchema =
-        firstSlug && searchResponse.tool_schemas[firstSlug]
-          ? searchResponse.tool_schemas[firstSlug]
-          : undefined;
-      const firstToolkit = firstSchema?.toolkit;
+    if (searchResponse.error) {
+      yield* ui.log.warn(searchResponse.error);
+    }
 
-      const cta: Array<{ action: string; command: string }> = [];
-      if (firstSlug) {
-        const payload = buildMinimalPayloadFromSchema(
-          firstSchema?.input_schema as Record<string, unknown>
-        );
-        const payloadJson = JSON.stringify(payload);
-        const dataArg = Object.keys(payload).length === 0 ? '-d "{}"' : `-d '${payloadJson}'`;
-        cta.push({
-          action: 'Execute a tool',
-          command: `composio execute "${firstSlug}" ${dataArg}`,
-        });
-      }
-      if (firstToolkit) {
-        cta.push({
-          action: 'Connect a user account',
-          command: `composio link ${String(firstToolkit).toLowerCase()}`,
-        });
-      }
+    const cta: Array<{ action: string; command: string }> = [];
+    if (firstSlug) {
+      cta.push({
+        action: 'Execute a tool',
+        command: params.rootOnly
+          ? `composio execute "${firstSlug}" ${firstDataArg}`
+          : `composio manage tools execute "${firstSlug}" --user-id "<user-id>" ${firstDataArg}`,
+      });
+    }
+    if (firstToolkit) {
+      cta.push({
+        action: 'Connect a user account',
+        command: params.rootOnly
+          ? `composio link ${String(firstToolkit).toLowerCase()}`
+          : `composio manage connected-accounts link ${String(firstToolkit).toLowerCase()} --user-id "<user-id>"`,
+      });
+    }
 
-      const outputForJq = {
-        ...searchResponse,
-        CTA: cta,
-      };
-      yield* ui.output(JSON.stringify(outputForJq, null, 2));
+    const outputForJq = {
+      ...searchResponse,
+      CTA: cta,
+    };
+    yield* ui.output(JSON.stringify(outputForJq, null, 2));
+  });
+
+export const toolsCmd$Search = Command.make(
+  'search',
+  { query, toolkits, userId, projectName, limit },
+  ({ query, toolkits, userId, projectName, limit }) =>
+    runToolsSearch({ query, toolkits, userId, projectName, limit, rootOnly: false })
+).pipe(
+  Command.withDescription(
+    [
+      'Semantically search tools by use case; returns best-fit tools plus recommended usage guidance.',
+      '',
+      'Related:',
+      '  composio link <toolkit>',
+      "  composio execute <slug> -d '{}'",
+    ].join('\n')
+  )
+);
+
+export const rootToolsCmd$Search = Command.make(
+  'search',
+  { query, toolkits, limit },
+  ({ query, toolkits, limit }) =>
+    runToolsSearch({
+      query,
+      toolkits,
+      userId: Option.none(),
+      projectName: Option.none(),
+      limit,
+      rootOnly: true,
     })
 ).pipe(
   Command.withDescription(
-    'Semantically search tools by use case; returns best-fit tools plus recommended usage guidance.'
+    [
+      'Semantically search tools by use case; returns best-fit tools plus recommended usage guidance.',
+      '',
+      'Related:',
+      '  composio link <toolkit>',
+      "  composio execute <slug> -d '{}'",
+    ].join('\n')
   )
 );
