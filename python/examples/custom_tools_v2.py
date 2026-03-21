@@ -5,8 +5,6 @@ Usage:
     COMPOSIO_API_KEY=... python examples/custom_tools_v2.py
 """
 
-import sys
-
 from pydantic import BaseModel, Field
 
 from composio import Composio
