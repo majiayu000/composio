@@ -691,7 +691,9 @@ class ToolRouter(Resource, t.Generic[TTool, TToolCollection]):
         # Map SDK's experimental.assistive_prompt.user_timezone to API's
         # experimental.assistive_prompt_config.user_timezone
         custom_tools: t.Optional[t.List[CustomTool]] = None
-        custom_toolkits: t.Optional[t.List[CustomToolkit]] = None
+        custom_toolkits: t.Optional[
+            t.List[t.Union[CustomToolkit, ExperimentalToolkit]]
+        ] = None
 
         if experimental is not None:
             experimental_payload: t.Dict[str, t.Any] = {}
